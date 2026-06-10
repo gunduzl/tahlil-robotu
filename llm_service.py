@@ -8,6 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from openai import OpenAI
+import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
@@ -32,10 +33,11 @@ Kurallar:
 
 def get_deepseek_client() -> OpenAI:
     """DeepSeek icin OpenAI uyumlu istemciyi olusturur."""
-    api_key = os.getenv("DEEPSEEK_API_KEY")
+    api_key = os.getenv("DEEPSEEK_API_KEY") or st.secrets.get("DEEPSEEK_API_KEY", "")
     if not api_key:
         raise ValueError(
-            f"DEEPSEEK_API_KEY bulunamadi. Beklenen dosya: {ENV_PATH}"
+            "DEEPSEEK_API_KEY bulunamadi. Localde .env, Streamlit Cloud'da Secrets "
+            "icinden tanimlayin."
         )
 
     return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
