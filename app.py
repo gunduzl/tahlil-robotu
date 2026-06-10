@@ -20,7 +20,7 @@ from database import (
 )
 from google_sheets_service import load_google_sheet_lab_data
 from lab_parser import parse_uploaded_lab_file
-from llm_service import generate_medical_comment
+from llm_service import generate_medical_comment, get_deepseek_api_key
 from reference_engine import evaluate_result, get_available_tests, get_test_unit
 from ui_components import (
     inject_global_styles,
@@ -113,6 +113,16 @@ def render_sidebar() -> str:
     """Sidebar'i bilgi paneli olarak kullanir."""
     st.sidebar.title("Tahlil Robotu")
     st.sidebar.caption("Gecis icin ustteki sekmeleri kullanin")
+
+    if not get_deepseek_api_key():
+        st.sidebar.text_input(
+            "DeepSeek API Key",
+            type="password",
+            key="deepseek_api_key",
+            placeholder="sk-...",
+            help="Streamlit Secrets tanimli degilse bu oturum icin kullanilir.",
+        )
+
     selected_user = get_selected_user()
     if selected_user:
         st.sidebar.markdown(

@@ -31,13 +31,29 @@ Kurallar:
 """.strip()
 
 
+def get_deepseek_api_key() -> str:
+    """DeepSeek API anahtarini env, Streamlit Secrets veya session'dan okur."""
+    api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    if api_key:
+        return api_key
+
+    try:
+        api_key = str(st.secrets.get("DEEPSEEK_API_KEY", "")).strip()
+        if api_key:
+            return api_key
+    except Exception:
+        pass
+
+    return str(st.session_state.get("deepseek_api_key", "")).strip()
+
+
 def get_deepseek_client() -> OpenAI:
     """DeepSeek icin OpenAI uyumlu istemciyi olusturur."""
-    api_key = os.getenv("DEEPSEEK_API_KEY") or st.secrets.get("DEEPSEEK_API_KEY", "")
+    api_key = get_deepseek_api_key()
     if not api_key:
         raise ValueError(
-            "DEEPSEEK_API_KEY bulunamadi. Localde .env, Streamlit Cloud'da Secrets "
-            "icinden tanimlayin."
+            "DEEPSEEK_API_KEY bulunamadi. Sol menuden API anahtarini girin veya "
+            "Streamlit Cloud Secrets icinde tanimlayin."
         )
 
     return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
