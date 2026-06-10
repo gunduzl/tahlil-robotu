@@ -109,6 +109,134 @@ def make_results_dataframe(results: list[dict]) -> pd.DataFrame:
     )
 
 
+def get_result_dates(results: list[dict]) -> list[str]:
+    """Kayitlarda bulunan tarihleri yeniden eskiye siralar."""
+    return sorted(
+        {str(result.get("test_date", "")) for result in results if result.get("test_date")},
+        reverse=True,
+    )
+
+
+def render_results_by_date_tabs(results: list[dict], key_prefix: str) -> None:
+    """Tahlil kayitlarini tarih bazli sekmelerde gosterir."""
+    result_dates = get_result_dates(results)
+    if not result_dates:
+        st.info("Tarih bilgisi olan tahlil sonucu bulunmuyor.")
+        return
+
+    tab_labels = []
+    for result_date in result_dates:
+        date_results = [result for result in results if result["test_date"] == result_date]
+        abnormal_count = sum(1 for result in date_results if result["is_out_of_range"])
+        suffix = f" - {abnormal_count} referans disi" if abnormal_count else ""
+        tab_labels.append(f"{result_date} ({len(date_results)}){suffix}")
+
+    for result_date, tab in zip(result_dates, st.tabs(tab_labels)):
+        with tab:
+            date_results = [result for result in results if result["test_date"] == result_date]
+            total_count = len(date_results)
+            abnormal_count = sum(1 for result in date_results if result["is_out_of_range"])
+            normal_count = total_count - abnormal_count
+
+            metric_col1, metric_col2, metric_col3 = st.columns(3)
+            metric_col1.metric("Bu Rapordaki Sonuc", total_count)
+            metric_col2.metric("Referans Disi", abnormal_count)
+            metric_col3.metric("Normal", normal_count)
+
+            st.dataframe(
+                style_results_dataframe(make_results_dataframe(date_results)),
+                use_container_width=True,
+                hide_index=True,
+                key=f"{key_prefix}_{result_date}",
+            )
+
+
+def make_history_dataframe(results: list[dict]) -> pd.DataFrame:
+    """Gecmis ve grafik ekranlari icin normalize edilmis DataFrame olusturur."""
+    df = pd.DataFrame(results)
+    if df.empty:
+        return df
+
+    df["test_date"] = pd.to_datetime(df["test_date"], errors="coerce")
+    df["date_label"] = df["test_date"].dt.date.astype(str)
+    df["test_value"] = pd.to_numeric(df["test_value"], errors="coerce")
+    df["unit"] = df["unit"].fillna("").astype(str)
+    df["test_label"] = df.apply(
+        lambda row: f"{row['test_name']} ({row['unit']})" if row["unit"] else row["test_name"],
+        axis=1,
+    )
+    return df.dropna(subset=["test_date", "test_value"])
+
+
+def render_test_trend_chart(df: pd.DataFrame) -> None:
+    """Secilen test icin gecmis deger trendini cizer."""
+    if df.empty:
+        st.info("Grafik icin kullanilabilir sayisal gecmis sonuc bulunmuyor.")
+        return
+
+    test_options = sorted(df["test_label"].unique())
+    selected_test = st.selectbox("Trend icin test secin", options=test_options)
+    selected_df = (
+        df[df["test_label"] == selected_test]
+        .sort_values(["test_date", "id"])
+        .drop_duplicates(subset=["date_label"], keep="last")
+    )
+
+    chart_df = selected_df[["test_date", "test_value"]].rename(
+        columns={"test_date": "Tarih", "test_value": "Deger"}
+    )
+
+    latest = selected_df.iloc[-1]
+    previous = selected_df.iloc[-2] if len(selected_df) > 1 else None
+    delta_value = None
+    trend_text = "Karsilastirma icin en az iki farkli tarih gerekir."
+    if previous is not None:
+        delta_value = float(latest["test_value"]) - float(previous["test_value"])
+        if delta_value > 0:
+            trend_text = "Son kayitta onceki olcume gore artis var."
+        elif delta_value < 0:
+            trend_text = "Son kayitta onceki olcume gore azalis var."
+        else:
+            trend_text = "Son kayit onceki olcumle ayni seviyede."
+
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    unit_text = f" {latest['unit']}" if latest["unit"] else ""
+    metric_col1.metric(
+        "Son Deger",
+        f"{latest['test_value']:g}{unit_text}",
+        f"{delta_value:g}" if delta_value is not None else None,
+    )
+    metric_col2.metric("Olcum Sayisi", len(selected_df))
+    metric_col3.metric("Son Tarih", str(latest["date_label"]))
+
+    st.caption(trend_text)
+    st.line_chart(chart_df, x="Tarih", y="Deger")
+
+    st.dataframe(
+        selected_df[
+            [
+                "date_label",
+                "test_name",
+                "test_value",
+                "unit",
+                "status",
+                "reference_text",
+            ]
+        ].rename(
+            columns={
+                "date_label": "Tarih",
+                "test_name": "Test",
+                "test_value": "Deger",
+                "unit": "Birim",
+                "status": "Durum",
+                "reference_text": "Referans",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
 def render_sidebar() -> str:
     """Sidebar'i bilgi paneli olarak kullanir."""
     st.sidebar.title("Tahlil Robotu")
@@ -469,7 +597,6 @@ def render_analysis_page() -> None:
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    df = make_results_dataframe(results)
     total_count = len(results)
     abnormal_count = sum(1 for result in results if result["is_out_of_range"])
     normal_count = total_count - abnormal_count
@@ -487,7 +614,8 @@ def render_analysis_page() -> None:
         unsafe_allow_html=True,
     )
 
-    st.dataframe(style_results_dataframe(df), use_container_width=True, hide_index=True)
+    st.markdown("#### Tahlil Raporlari")
+    render_results_by_date_tabs(results, key_prefix="analysis_results")
 
     if st.button("DR. Yapay Zeka ile Rapor Olustur", type="primary", use_container_width=True):
         abnormal_results = [result for result in results if result["is_out_of_range"]]
@@ -574,34 +702,13 @@ def render_history_page() -> None:
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    df = pd.DataFrame(results)
-    df["test_date"] = pd.to_datetime(df["test_date"])
+    df = make_history_dataframe(results)
 
-    st.subheader("Tum Kayitlar")
-    st.dataframe(
-        df[
-            [
-                "id",
-                "test_date",
-                "test_name",
-                "test_value",
-                "unit",
-                "status",
-                "reference_text",
-            ]
-        ].sort_values("test_date", ascending=False),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.subheader("Tarih Bazli Raporlar")
+    render_results_by_date_tabs(results, key_prefix="history_results")
 
-    st.subheader("Trend Grafigi")
-    selected_test = st.selectbox("Trend icin test secin", options=sorted(df["test_name"].unique()))
-    chart_df = (
-        df[df["test_name"] == selected_test][["test_date", "test_value"]]
-        .sort_values("test_date")
-        .set_index("test_date")
-    )
-    st.line_chart(chart_df)
+    st.subheader("Gecmis Deger Trendi")
+    render_test_trend_chart(df)
 
     with st.expander("Kayit Silme"):
         result_id = st.number_input("Silmek istediginiz Kayit ID", min_value=1, step=1)
